@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -13,31 +14,54 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var showsuccess bool = false
 var successlist []string
+var outputFormat string
+
+type Result struct {
+	URL         string `json:"url"`
+	Status      string `json:"status"`
+	ContentType string `json:"content_type"`
+}
 
 func main() {
+	http.DefaultClient.Timeout = 2 * time.Second
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	ex, err := os.Executable()
 	if err != nil {
-		panic(err)
+		log.Fatal("Error getting executable path:", err)
 	}
 	exPath := filepath.Dir(ex)
 
-	address := flag.String("url", "", "url address https://google.com")
-	showsuccessresult := flag.Bool("v", false, "show success result only")
+	address := flag.String("url", "", "URL address (e.g., https://google.com)")
+	showsuccessresult := flag.Bool("v", false, "Show success results only")
+	outputPath := flag.String("o", "", "Output file path")
+	format := flag.String("f", "text", "Output format (text, json, csv)")
 	flag.Parse()
+
 	if *showsuccessresult {
 		showsuccess = true
 	}
 	if *address == "" {
-		println("Please Set url --url or -h for help")
-		return
+		log.Fatal("Please set URL with --url flag or use -h for help")
 	}
-	file, err := os.Open(exPath + "/Directory_list.txt")
 
+	outputFormat = *format
+	if *outputPath != "" && outputFormat != "text" && outputFormat != "json" && outputFormat != "csv" {
+		log.Fatal("Invalid format. Supported formats: text, json, csv")
+	}
+
+	if *outputPath != "" {
+		outDir := filepath.Dir(*outputPath)
+		if err := os.MkdirAll(outDir, 0755); err != nil {
+			log.Fatal("Error creating output directory:", err)
+		}
+	}
+
+	file, err := os.Open(exPath + "/Directory_list.txt")
 	if err != nil {
 		fmt.Printf("%s", err)
 		return
@@ -53,21 +77,16 @@ func main() {
 	newlistwithcurl := pathinurl(*address)
 	uniqelistwithurl := Unique(newlistwithcurl)
 
-	for _, str := range uniqelistwithurl {
-		newlist = append(newlist, str)
-	}
+	newlist = append(newlist, uniqelistwithurl...)
 	defer file.Close()
 	for _, url := range newlist {
-
 		if url != "" {
 			if strings.HasPrefix(url, "/") {
-
 				if strings.HasSuffix(url, "/") {
 					checkurl(*address+url, url)
 				} else {
 					checkurl(*address+url+"/", url)
 				}
-
 			} else {
 				if strings.HasSuffix(url, "/") {
 					checkurl(*address+"/"+url, "/ "+url)
@@ -75,32 +94,36 @@ func main() {
 					checkurl(*address+"/"+url+"/", "/"+url)
 				}
 			}
-
 		}
-
 	}
-	fmt.Printf("%d %s", len(successlist), " Found")
-	for _, v := range successlist {
-		println(v)
+	fmt.Printf("\nFound %d directory listings\n", len(successlist))
+	if *outputPath != "" {
+		saveResults(*outputPath, successlist)
+	} else {
+		for _, v := range successlist {
+			fmt.Println(v)
+		}
 	}
-	//fmt.Printf(*address)
 }
+
 func Unique(slice []string) []string {
-	// create a map with all the values as key
 	uniqMap := make(map[string]struct{})
 	for _, v := range slice {
 		uniqMap[v] = struct{}{}
 	}
 
-	// turn the map keys into a slice
 	uniqSlice := make([]string, 0, len(uniqMap))
 	for v := range uniqMap {
 		uniqSlice = append(uniqSlice, v)
 	}
 	return uniqSlice
 }
+
 func pathinurl(urlrecive string) (list []string) {
-	response, err := http.Get(urlrecive)
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+	response, err := client.Get(urlrecive)
 	if err != nil {
 		log.Fatal(err)
 		return nil
@@ -119,7 +142,6 @@ func pathinurl(urlrecive string) (list []string) {
 	addresuri, _ := url.Parse(urlrecive)
 
 	for _, fou := range found {
-
 		perfix := ""
 		if strings.Contains(strings.ToLower(fou[1]), "http") {
 			perfix = fou[1]
@@ -129,7 +151,6 @@ func pathinurl(urlrecive string) (list []string) {
 			} else {
 				perfix = urlrecive + "/" + fou[1]
 			}
-
 		}
 		checkuri, err := url.Parse(perfix)
 
@@ -139,15 +160,11 @@ func pathinurl(urlrecive string) (list []string) {
 		}
 
 		if len(checkuri.Path) > 3 {
-
 			if strings.Contains(addresuri.Host, checkuri.Host) {
-				//fmt.Printf("%s\n", checkuri.Path)
 				pathurispli := strings.Split(checkuri.Path, "/")
-				//fmt.Printf("pathurispli len   :  %d \n", len(pathurispli))
 				pathcomplate := ""
 				perfix := ""
 				for i := 1; i < len(pathurispli); i++ {
-
 					if pathurispli[i] == "/" || pathurispli[i] == "" {
 						continue
 					}
@@ -160,7 +177,6 @@ func pathinurl(urlrecive string) (list []string) {
 							strings.Contains(tolowers, ".ttf") || strings.Contains(tolowers, ".ico") ||
 							strings.Contains(tolowers, ".otf") || strings.Contains(tolowers, ".woff") ||
 							strings.Contains(tolowers, ".woff2") || strings.Contains(tolowers, ".ico") {
-
 						} else {
 							if strings.Contains(tolowers, "?") {
 								splitqus := strings.Split(pathurispli[i], "?")
@@ -168,18 +184,12 @@ func pathinurl(urlrecive string) (list []string) {
 							} else {
 								pathcomplate += perfix + pathurispli[i]
 							}
-
 						}
-
 					}
 					perfix = "/"
 				}
-				//patharray = append(patharray, pathcomplate)
-
-				patharray = append(patharray, pathcomplate) // here
+				patharray = append(patharray, pathcomplate)
 				for i := len(pathurispli) - 1; 1 < i; i-- {
-
-					//fmt.Println("beginlop" + pathurispli[i])
 					lastpath := ""
 					for ii := 0; ii < i; ii++ {
 						if pathurispli[ii] == "" {
@@ -187,18 +197,15 @@ func pathinurl(urlrecive string) (list []string) {
 						}
 						lastpath += pathurispli[ii] + "/"
 					}
-					//fmt.Println("afterlop : " + lastpath)
 					patharray = append(patharray, strings.TrimRight(lastpath, "/"))
 				}
-
 			}
 		}
-
 	}
 	defer response.Body.Close()
 	return patharray
-
 }
+
 func readToDisplayUsingFile1(f *os.File) (line []string) {
 	defer f.Close()
 	reader := bufio.NewReader(f)
@@ -206,9 +213,12 @@ func readToDisplayUsingFile1(f *os.File) (line []string) {
 	lines := strings.Split(string(contents), "\n")
 	return lines
 }
-func checkurl(url string, path string) {
 
-	resp, err := http.Get(url)
+func checkurl(url string, path string) {
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get(url)
 	if err != nil {
 		if strings.Contains(err.Error(), "http: server gave HTTP response to HTTPS clien") {
 			os.Exit(3)
@@ -231,18 +241,42 @@ func checkurl(url string, path string) {
 
 					bodyString := strings.ToLower(string(bodyBytes))
 					if (strings.Contains(bodyString, "index of /") || strings.Contains(bodyString, "directory /")) && strings.Contains(bodyString, strings.TrimRight(path, "/")) {
-						//fmt.Printf("'%s', '%s', '%s',\n", url, resp.Status, resp.Header.Get("Content-Type"))
 						fmt.Println(url)
 						successlist = append(successlist, url)
 					}
-
 				}
 			}
-
 		} else {
-			//fmt.Printf("'%s', '%s',\n", url, resp.Status)
 		}
+	}
+}
 
+func saveResults(outputPath string, results []string) {
+	var output string
+	switch outputFormat {
+	case "json":
+		jsonResults := make([]Result, len(results))
+		for i, url := range results {
+			jsonResults[i] = Result{URL: url, Status: "200", ContentType: "text/html"}
+		}
+		jsonData, err := json.MarshalIndent(jsonResults, "", "  ")
+		if err != nil {
+			log.Fatal("Error creating JSON:", err)
+		}
+		output = string(jsonData)
+	case "csv":
+		var csvData strings.Builder
+		csvData.WriteString("URL,Status,Content-Type\n")
+		for _, url := range results {
+			csvData.WriteString(fmt.Sprintf("%s,200,text/html\n", url))
+		}
+		output = csvData.String()
+	default:
+		output = strings.Join(results, "\n")
 	}
 
+	if err := os.WriteFile(outputPath, []byte(output), 0644); err != nil {
+		log.Fatal("Error saving results:", err)
+	}
+	fmt.Printf("Results saved to: %s\n", outputPath)
 }
