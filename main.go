@@ -30,10 +30,6 @@ type Result struct {
 func main() {
 	http.DefaultClient.Timeout = 2 * time.Second
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	ex, err := os.Executable()
-	if err != nil {
-		log.Fatal("Error getting executable path:", err)
-	}
 
 	address := flag.String("url", "", "URL address (e.g., https://google.com)")
 	showsuccessresult := flag.Bool("v", false, "Show success results only")
