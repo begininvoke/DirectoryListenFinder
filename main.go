@@ -227,7 +227,7 @@ func readToDisplayUsingFile1(f *os.File) (line []string) {
 
 func checkurl(url string, path string) {
 	client := &http.Client{
-		Timeout: 2 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 	resp, err := client.Get(url)
 	if err != nil {
